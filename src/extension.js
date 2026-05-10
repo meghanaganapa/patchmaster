@@ -25,6 +25,11 @@ function taskLikelyNeedsCommand(task) {
   return /\b(run|test|install|requirements|dependencies|package|start|execute|launch|serve|npm install|pip install)\b/i.test(task);
 }
 
+function responseOnlyWantsInspection(plan) {
+  const text = `${plan.summary || ''}\n${plan.response || ''}`.toLowerCase();
+  return /\b(need to|first|before)\b[\s\S]{0,80}\b(inspect|list files|see existing files|check the workspace|look at the workspace)\b/.test(text);
+}
+
 function taskLikelyRequestsFreshStart(task) {
   return /\b(delete all|remove all|start fresh|start from scratch|clean slate|wipe|reset project|new project)\b/i.test(task);
 }
@@ -567,8 +572,9 @@ async function askForWorkspacePlan(task, feedback = '', taskId = makeTaskId(), a
         'You are a VS Code workspace coding agent.',
         'The latest task is the source of truth. Older conversation is only weak background context.',
         'Do not repeat or copy a previous answer unless the latest task explicitly asks for the same thing.',
-        'Work in an inspect -> edit -> verify loop. Use command results to decide the next edit.',
+        'Work in an inspect -> edit -> verify loop. The workspace context below is already the first inspection result.',
         'Do not stop at a generic explanation when the workspace can be inspected, edited, or verified.',
+        'Do not run ls, dir, pwd, Get-ChildItem, or similar commands just to inspect files already shown in the workspace context.',
         'Inspection commands alone do not complete create, build, add, implement, fix, or edit tasks.',
         'After an inspection command succeeds, use its output to create or edit files when the latest task asks for code changes.',
         'Make your visible response explain the approach, important evidence from files or command output, and the concrete solution.',
@@ -581,10 +587,12 @@ async function askForWorkspacePlan(task, feedback = '', taskId = makeTaskId(), a
         '"files" is an array of {"path": "relative/path", "content": "complete file content"}.',
         '"deleteFiles" is an array of workspace-relative paths to remove when the user asks to start fresh or delete stale files.',
         '"commands" is an array of shell commands to run after editing. Keep commands minimal.',
-        'You may include read-only inspection commands before edits are needed, such as listing files, checking package scripts, or running tests.',
+        'Use read-only inspection commands only when the provided workspace context is insufficient for a specific reason.',
         'When multiple commands are useful, return all of them in order.',
         'Use commands to verify your work. Prefer the project test command when available.',
         'When the user asks to create, build, add, implement, fix, or edit code, you must include at least one file edit unless the task is impossible.',
+        'For an empty workspace, create the requested file immediately with a sensible filename.',
+        'For requests like binary search, two sum, reminders, or scripts, return a complete runnable source file.',
         'Only include commands when the latest user task explicitly asks to run, test, install, start, launch, execute, or check something.',
         'When the user asks to run or test code, include a command.',
         'When the user asks to install requirements, dependencies, or packages, include installation commands such as npm install or python -m pip install -r requirements.txt when those files exist.',
@@ -836,6 +844,7 @@ async function runWorkspaceTask(task, postUpdate, attachedPaths = [], uploadedFi
   let lastPlanText = '';
   let commandApproval = false;
   let commandApprovalAsked = false;
+  let noActionCount = 0;
 
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     postUpdate(`[${formatElapsed(startedAt)}] Iteration ${iteration}/${maxIterations}: inspecting context and planning the next action...`);
@@ -863,6 +872,17 @@ async function runWorkspaceTask(task, postUpdate, attachedPaths = [], uploadedFi
     lastPlanText = planText;
 
     if (taskLikelyRequestsFreshStart(task) && !plan.deleteFiles.length) {
+      noActionCount += 1;
+      if (noActionCount >= 4) {
+        return addElapsedToReport(buildTaskReport('Stopped because the model did not return a deletion plan.', {
+          context: [
+            'The latest task looked like a fresh-start request, but repeated model plans did not include deleteFiles.',
+            'No files were deleted.',
+          ],
+          response: 'I could not get a safe deletion plan after several attempts. No files were changed.',
+          summary: 'No deletion plan returned.',
+        }, Array.from(changedFiles)), startedAt);
+      }
       feedback = [
         'The latest task appears to ask for a fresh start, but deleteFiles was empty.',
         'Return deleteFiles for stale workspace files that should be removed, plus files for the new project.',
@@ -870,6 +890,29 @@ async function runWorkspaceTask(task, postUpdate, attachedPaths = [], uploadedFi
         `Latest task: ${task}`,
       ].join('\n');
       postUpdate(`[${formatElapsed(startedAt)}] Iteration ${iteration}: this looks like a fresh-start request, so I am asking for deleteFiles and replacement files.`);
+      continue;
+    }
+
+    if (taskLikelyNeedsAction(task) && responseOnlyWantsInspection(plan) && !plan.files.length) {
+      noActionCount += 1;
+      if (noActionCount >= 4) {
+        return addElapsedToReport(buildTaskReport('Stopped because the model kept asking to inspect instead of editing.', {
+          context: [
+            'The extension already provides workspace context.',
+            'Repeated model plans asked to inspect/list files instead of creating or editing the requested file.',
+          ],
+          response: 'I could not get the model to produce a concrete file edit after several attempts. No files were changed.',
+          summary: 'No file edit returned.',
+        }, Array.from(changedFiles)), startedAt);
+      }
+      feedback = [
+        'Do not stop to inspect before creating or editing files.',
+        'The workspace context has already been provided by the extension.',
+        'Create or edit the requested file now. Return the full file content in "files".',
+        taskLikelyNeedsCommand(task) ? 'If the user asked to run the code, include the run command after the file edit.' : '',
+        `Latest task: ${task}`,
+      ].join('\n');
+      postUpdate(`[${formatElapsed(startedAt)}] The plan only wanted to inspect. I am asking for the actual file edit now...`);
       continue;
     }
 
@@ -882,6 +925,17 @@ async function runWorkspaceTask(task, postUpdate, attachedPaths = [], uploadedFi
     }
 
     if (taskLikelyNeedsAction(task) && !plan.files.length && !plan.commands.length && !plan.deleteFiles.length) {
+      noActionCount += 1;
+      if (noActionCount >= 4) {
+        return addElapsedToReport(buildTaskReport('Stopped because the model did not return an actionable edit.', {
+          context: [
+            'The latest task requires file changes, but repeated model plans returned no files, no commands, and no deletions.',
+            'Try a more direct prompt such as: Create `binary_search.py` with a binary search implementation and run it.',
+          ],
+          response: 'I could not get an actionable file edit after several attempts. No files were changed.',
+          summary: 'No actionable edit returned.',
+        }, Array.from(changedFiles)), startedAt);
+      }
       feedback = [
         'The previous response did not take an action.',
         'For this latest task, return concrete file edits, deleteFiles, and/or shell commands instead of only explanation.',
