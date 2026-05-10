@@ -396,18 +396,10 @@ function runShellCommand(command, cwd, runState, onOutput) {
 
     let stdout = '';
     let stderr = '';
-    let lastOutputAt = Date.now();
-    const heartbeat = setInterval(() => {
-      if (Date.now() - lastOutputAt >= 10000 && onOutput) {
-        onOutput('Still running... waiting for command output.');
-        lastOutputAt = Date.now();
-      }
-    }, 5000);
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString();
       stdout += text;
-      lastOutputAt = Date.now();
       if (onOutput && text.trim()) {
         onOutput(text.trim());
       }
@@ -416,14 +408,12 @@ function runShellCommand(command, cwd, runState, onOutput) {
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString();
       stderr += text;
-      lastOutputAt = Date.now();
       if (onOutput && text.trim()) {
         onOutput(text.trim());
       }
     });
 
     child.on('error', (error) => {
-      clearInterval(heartbeat);
       if (runState && runState.child === child) {
         runState.child = null;
       }
@@ -438,7 +428,6 @@ function runShellCommand(command, cwd, runState, onOutput) {
     });
 
     child.on('close', (code) => {
-      clearInterval(heartbeat);
       if (runState && runState.child === child) {
         runState.child = null;
       }

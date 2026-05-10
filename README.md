@@ -7,7 +7,7 @@ A lightweight VS Code extension that turns a natural-language task into workspac
 - One-button agent workflow: describe the task, then click `Run and Fix`.
 - Creates and updates files inside the current workspace.
 - Runs generated check commands only after user confirmation.
-- Streams command output while installs, tests, or run commands are still executing.
+- Streams real command output while installs, tests, or run commands are executing.
 - Feeds command failures back into the agent for another fix attempt.
 - Uses a higher retry budget by default so it can keep working through failures.
 - Labels transcript messages as `Human`, `Agent`, `Agent status`, or `Error`.
