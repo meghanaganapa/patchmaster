@@ -1,0 +1,74 @@
+{
+  "name": "patchmaster",
+  "displayName": "PatchMaster",
+  "description": "A lightweight VS Code coding agent that creates files, runs checks with confirmation, explains failures, and retries fixes.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "codex",
+    "agent",
+    "vscode",
+    "automation",
+    "debugging"
+  ],
+  "activationEvents": [
+    "onCommand:patchMaster.openAgent",
+    "onCommand:patchMaster.workspaceTask"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "patchMaster.openAgent",
+        "title": "PatchMaster: Open Agent"
+      },
+      {
+        "command": "patchMaster.workspaceTask",
+        "title": "PatchMaster: Run and Fix Task"
+      }
+    ],
+    "configuration": {
+      "title": "PatchMaster",
+      "properties": {
+        "patchMaster.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OpenAI API key. If empty, the extension uses the `OPENAI_API_KEY` environment variable."
+        },
+        "patchMaster.model": {
+          "type": "string",
+          "default": "gpt-5.2-codex",
+          "description": "Model used for agent planning and file edits."
+        },
+        "patchMaster.maxFileChars": {
+          "type": "number",
+          "default": 16000,
+          "description": "Maximum active-file characters to send as context."
+        },
+        "patchMaster.defaultTestCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Optional default command for autonomous fix-and-test loops."
+        },
+        "patchMaster.maxIterations": {
+          "type": "number",
+          "default": 20,
+          "description": "Maximum autonomous fix attempts before stopping to protect the editor and API usage."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "lint": "node --check src/extension.js",
+    "test": "npm run lint",
+    "package": "vsce package"
+  },
+  "devDependencies": {}
+}

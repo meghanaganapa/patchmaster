@@ -1,0 +1,8 @@
+.vscode/**
+__pycache__/**
+*.pyc
+*.vsix
+.git/**
+.gitignore
+node_modules/**
+npm-debug.log
