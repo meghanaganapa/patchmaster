@@ -569,6 +569,8 @@ async function askForWorkspacePlan(task, feedback = '', taskId = makeTaskId(), a
         'Do not repeat or copy a previous answer unless the latest task explicitly asks for the same thing.',
         'Work in an inspect -> edit -> verify loop. Use command results to decide the next edit.',
         'Do not stop at a generic explanation when the workspace can be inspected, edited, or verified.',
+        'Inspection commands alone do not complete create, build, add, implement, fix, or edit tasks.',
+        'After an inspection command succeeds, use its output to create or edit files when the latest task asks for code changes.',
         'Make your visible response explain the approach, important evidence from files or command output, and the concrete solution.',
         'Use **bold** for important filenames, decisions, errors, and final answers in response/context.',
         'Do not reveal hidden chain-of-thought. Provide concise working notes and rationale instead.',
@@ -947,6 +949,25 @@ async function runWorkspaceTask(task, postUpdate, attachedPaths = [], uploadedFi
         summary: 'Cancelled by user.',
       }, Array.from(changedFiles), lastOutput), startedAt);
     }
+
+    if (
+      commandRun.ok &&
+      taskLikelyNeedsAction(task) &&
+      !plan.files.length &&
+      !plan.deleteFiles.length &&
+      changedFiles.size === 0
+    ) {
+      feedback = [
+        'The inspection command succeeded, but the latest task is not complete because no files were created or edited.',
+        'Use the command output below as context, then return concrete file edits in "files".',
+        `Latest task: ${task}`,
+        '',
+        lastOutput.slice(-8000),
+      ].join('\n');
+      postUpdate(`[${formatElapsed(startedAt)}] Inspection succeeded, but no files changed. I am using that output to create the requested code now...`);
+      continue;
+    }
+
     if (commandRun.ok) {
       return addElapsedToReport(buildTaskReport([
         `Passed after ${iteration} iteration${iteration === 1 ? '' : 's'}.`,
